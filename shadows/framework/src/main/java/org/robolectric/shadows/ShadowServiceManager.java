@@ -14,6 +14,7 @@ import android.accounts.IAccountManager;
 import android.app.IAlarmManager;
 import android.app.INotificationManager;
 import android.app.ISearchManager;
+import android.app.IUiModeManager;
 import android.app.IWallpaperManager;
 import android.app.admin.IDevicePolicyManager;
 import android.app.job.IJobScheduler;
@@ -38,6 +39,7 @@ import android.media.IAudioService;
 import android.media.IMediaRouterService;
 import android.media.session.ISessionManager;
 import android.net.IConnectivityManager;
+import android.net.INetworkPolicyManager;
 import android.net.INetworkScoreService;
 import android.net.nsd.INsdManager;
 import android.net.wifi.IWifiManager;
@@ -59,7 +61,6 @@ import com.android.internal.app.IBatteryStats;
 import com.android.internal.appwidget.IAppWidgetService;
 import com.android.internal.os.IDropBoxManagerService;
 import com.android.internal.view.IInputMethodManager;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -75,156 +76,129 @@ import org.robolectric.util.ReflectionHelpers;
 @Implements(value = ServiceManager.class, isInAndroidSdk = false)
 public class ShadowServiceManager {
 
-  private static final Map<String, IBinder> SERVICES;
-
+  private static final Map<String, ServiceDescriptor> serviceDescriptors = new HashMap<>();
   private static final Set<String> unavailableServices = new HashSet<>();
+  private static final Map<String, IBinder> cachedServices = new HashMap<>();
 
   static {
-    Map<String, IBinder> map = new HashMap<>();
-    map.put(
-        Context.CLIPBOARD_SERVICE, createBinder(IClipboard.class, "android.content.IClipboard"));
-    map.put(
-        Context.WIFI_P2P_SERVICE,
-        createBinder(IWifiP2pManager.class, "android.net.wifi.p2p.IWifiP2pManager"));
-    map.put(
-        Context.ACCOUNT_SERVICE,
-        createBinder(IAccountManager.class, "android.accounts.IAccountManager"));
-    map.put(
-        Context.USB_SERVICE, createBinder(IUsbManager.class, "android.hardware.usb.IUsbManager"));
-    map.put(
-        Context.LOCATION_SERVICE,
-        createBinder(ILocationManager.class, "android.location.ILocationManager"));
-    map.put(
-        Context.INPUT_METHOD_SERVICE,
-        createBinder(IInputMethodManager.class, "com.android.internal.view.IInputMethodManager"));
-    map.put(Context.ALARM_SERVICE, createBinder(IAlarmManager.class, "android.app.IAlarmManager"));
-    map.put(Context.POWER_SERVICE, createBinder(IPowerManager.class, "android.os.IPowerManager"));
-    map.put(
-        BatteryStats.SERVICE_NAME,
-        createBinder(IBatteryStats.class, "com.android.internal.app.IBatteryStats"));
-    map.put(
-        Context.DROPBOX_SERVICE,
-        createBinder(
-            IDropBoxManagerService.class, "com.android.internal.os.IDropBoxManagerService"));
-    map.put(
-        Context.DEVICE_POLICY_SERVICE,
-        createBinder(IDevicePolicyManager.class, "android.app.admin.IDevicePolicyManager"));
-    map.put(
-        Context.CONNECTIVITY_SERVICE,
-        createBinder(IConnectivityManager.class, "android.net.IConnectivityManager"));
-    map.put(
-        Context.WIFI_SERVICE, createBinder(IWifiManager.class, "android.net.wifi.IWifiManager"));
-    map.put(
-        Context.SEARCH_SERVICE, createBinder(ISearchManager.class, "android.app.ISearchManager"));
-    map.put(
-        Context.UI_MODE_SERVICE, createBinder(ISearchManager.class, "android.app.IUiModeManager"));
-    map.put(
-        Context.NETWORK_POLICY_SERVICE,
-        createBinder(ISearchManager.class, "android.net.INetworkPolicyManager"));
-    map.put(Context.INPUT_SERVICE, createBinder(IInputManager.class, "android.net.IInputManager"));
-    map.put(
-        Context.COUNTRY_DETECTOR,
-        createBinder(ICountryDetector.class, "android.location.ICountryDetector"));
-    map.put(
-        Context.NSD_SERVICE, createBinder(INsdManager.class, "android.net.nsd.INsdManagerandroi"));
-    map.put(
-        Context.AUDIO_SERVICE, createBinder(IAudioService.class, "android.media.IAudioService"));
-    map.put(
-        Context.APPWIDGET_SERVICE,
-        createBinder(IAppWidgetService.class, "com.android.internal.appwidget.IAppWidgetService"));
-    map.put(
-        Context.NOTIFICATION_SERVICE,
-        createBinder(INotificationManager.class, "android.app.INotificationManager"));
-    map.put(
-        Context.WALLPAPER_SERVICE,
-        createBinder(IWallpaperManager.class, "android.app.IWallpaperManager"));
+    addServiceDescriptor(Context.CLIPBOARD_SERVICE, IClipboard.class);
+    addServiceDescriptor(Context.WIFI_P2P_SERVICE, IWifiP2pManager.class);
+    addServiceDescriptor(Context.ACCOUNT_SERVICE, IAccountManager.class);
+    addServiceDescriptor(Context.USB_SERVICE, IUsbManager.class);
+    addServiceDescriptor(Context.LOCATION_SERVICE, ILocationManager.class);
+    addServiceDescriptor(Context.INPUT_METHOD_SERVICE, IInputMethodManager.class);
+    addServiceDescriptor(Context.ALARM_SERVICE, IAlarmManager.class);
+    addServiceDescriptor(Context.POWER_SERVICE, IPowerManager.class);
+    addServiceDescriptor(BatteryStats.SERVICE_NAME, IBatteryStats.class);
+    addServiceDescriptor(Context.DROPBOX_SERVICE, IDropBoxManagerService.class);
+    addServiceDescriptor(Context.DEVICE_POLICY_SERVICE, IDevicePolicyManager.class);
+    addServiceDescriptor(Context.CONNECTIVITY_SERVICE, IConnectivityManager.class);
+    addServiceDescriptor(Context.WIFI_SERVICE, IWifiManager.class);
+    addServiceDescriptor(Context.SEARCH_SERVICE, ISearchManager.class);
+    addServiceDescriptor(Context.UI_MODE_SERVICE, IUiModeManager.class);
+    addServiceDescriptor(Context.NETWORK_POLICY_SERVICE, INetworkPolicyManager.class);
+    addServiceDescriptor(Context.INPUT_SERVICE, IInputManager.class);
+    addServiceDescriptor(Context.COUNTRY_DETECTOR, ICountryDetector.class);
+    addServiceDescriptor(Context.NSD_SERVICE, INsdManager.class);
+    addServiceDescriptor(Context.AUDIO_SERVICE, IAudioService.class);
+    addServiceDescriptor(Context.APPWIDGET_SERVICE, IAppWidgetService.class);
+    addServiceDescriptor(Context.NOTIFICATION_SERVICE, INotificationManager.class);
+    addServiceDescriptor(Context.WALLPAPER_SERVICE, IWallpaperManager.class);
 
     if (RuntimeEnvironment.getApiLevel() >= JELLY_BEAN_MR1) {
-      map.put(Context.USER_SERVICE, createBinder(IUserManager.class, "android.os.IUserManager"));
+      addServiceDescriptor(Context.USER_SERVICE, IUserManager.class);
     }
     if (RuntimeEnvironment.getApiLevel() >= JELLY_BEAN_MR2) {
-      map.put(
-          Context.APP_OPS_SERVICE,
-          createBinder(IAppOpsService.class, "com.android.internal.app.IAppOpsService"));
+      addServiceDescriptor(Context.APP_OPS_SERVICE, IAppOpsService.class);
     }
     if (RuntimeEnvironment.getApiLevel() >= KITKAT) {
-      map.put(
-          "batteryproperties",
-          createBinder(
-              IBatteryPropertiesRegistrar.class, "android.os.IBatteryPropertiesRegistrar"));
+      addServiceDescriptor("batteryproperties", IBatteryPropertiesRegistrar.class);
     }
     if (RuntimeEnvironment.getApiLevel() >= LOLLIPOP) {
-      map.put(
-          Context.RESTRICTIONS_SERVICE,
-          createBinder(IRestrictionsManager.class, "android.content.IRestrictionsManager"));
-      map.put(
-          Context.TRUST_SERVICE,
-          createBinder(ITrustManager.class, "android.app.trust.ITrustManager"));
-      map.put(
-          Context.JOB_SCHEDULER_SERVICE,
-          createBinder(IJobScheduler.class, "android.app.job.IJobScheduler"));
-      map.put(
-          Context.NETWORK_SCORE_SERVICE,
-          createBinder(INetworkScoreService.class, "android.net.INetworkScoreService"));
-      map.put(
-          Context.USAGE_STATS_SERVICE,
-          createBinder(IUsageStatsManager.class, "android.app.usage.IUsageStatsManager"));
-      map.put(
-          Context.MEDIA_ROUTER_SERVICE,
-          createBinder(IMediaRouterService.class, "android.media.IMediaRouterService"));
-      map.put(
-          Context.MEDIA_SESSION_SERVICE,
-          createDeepBinder(ISessionManager.class, "android.media.session.ISessionManager"));
+      addServiceDescriptor(Context.RESTRICTIONS_SERVICE, IRestrictionsManager.class);
+      addServiceDescriptor(Context.TRUST_SERVICE, ITrustManager.class);
+      addServiceDescriptor(Context.JOB_SCHEDULER_SERVICE, IJobScheduler.class);
+      addServiceDescriptor(Context.NETWORK_SCORE_SERVICE, INetworkScoreService.class);
+      addServiceDescriptor(Context.USAGE_STATS_SERVICE, IUsageStatsManager.class);
+      addServiceDescriptor(Context.MEDIA_ROUTER_SERVICE, IMediaRouterService.class);
+      addServiceDescriptor(Context.MEDIA_SESSION_SERVICE, ISessionManager.class, true);
     }
     if (RuntimeEnvironment.getApiLevel() >= M) {
-      map.put(
-          Context.FINGERPRINT_SERVICE,
-          createBinder(
-              IFingerprintService.class, "android.hardware.fingerprint.IFingerprintService"));
+      addServiceDescriptor(Context.FINGERPRINT_SERVICE, IFingerprintService.class);
     }
     if (RuntimeEnvironment.getApiLevel() >= N_MR1) {
-      map.put(
-          Context.SHORTCUT_SERVICE,
-          createBinder(IShortcutService.class, "android.content.pm.IShortcutService"));
+      addServiceDescriptor(Context.SHORTCUT_SERVICE, IShortcutService.class);
     }
     if (RuntimeEnvironment.getApiLevel() >= O) {
-      map.put("mount", createBinder(IStorageManager.class, "android.os.storage.IStorageManager"));
+      addServiceDescriptor("mount", IStorageManager.class);
     } else {
-      map.put(
-          "mount",
-          createBinder("android.os.storage.IMountService", "android.os.storage.IMountService"));
+      addServiceDescriptor("mount", "android.os.storage.IMountService");
     }
     if (RuntimeEnvironment.getApiLevel() >= P) {
-      map.put(
-          Context.SLICE_SERVICE,
-          createBinder(ISliceManager.class, "android.app.slice.SliceManager"));
-      map.put(
-          Context.CROSS_PROFILE_APPS_SERVICE,
-          createBinder(ICrossProfileApps.class, "android.content.pm.ICrossProfileApps"));
-      map.put(
-          Context.WIFI_RTT_RANGING_SERVICE,
-          createBinder(IWifiRttManager.class, "android.net.wifi.IWifiRttManager"));
-      map.put(
-          Context.CONTEXTHUB_SERVICE,
-          createBinder(IContextHubService.class, "android.hardware.location.IContextHubService"));
+      addServiceDescriptor(Context.SLICE_SERVICE, ISliceManager.class);
+      addServiceDescriptor(Context.CROSS_PROFILE_APPS_SERVICE, ICrossProfileApps.class);
+      addServiceDescriptor(Context.WIFI_RTT_RANGING_SERVICE, IWifiRttManager.class);
+      addServiceDescriptor(Context.CONTEXTHUB_SERVICE, IContextHubService.class);
     }
     if (RuntimeEnvironment.getApiLevel() >= Q) {
-      map.put(
-          Context.BIOMETRIC_SERVICE,
-          createBinder(IBiometricService.class, "android.hardware.biometrics.IBiometricService"));
-      map.put(
-          Context.ROLE_SERVICE, createBinder(IRoleManager.class, "android.app.role.IRoleManager"));
-      map.put(
-          Context.ROLLBACK_SERVICE,
-          createBinder(IRollbackManager.class, "android.content.rollback.RollbackManager"));
-      map.put(
-          Context.THERMAL_SERVICE,
-          createBinder(IThermalService.class, "android.os.IThermalService"));
+      addServiceDescriptor(Context.BIOMETRIC_SERVICE, IBiometricService.class);
+      addServiceDescriptor(Context.ROLE_SERVICE, IRoleManager.class);
+      addServiceDescriptor(Context.ROLLBACK_SERVICE, IRollbackManager.class);
+      addServiceDescriptor(Context.THERMAL_SERVICE, IThermalService.class);
     }
-
-    SERVICES = Collections.unmodifiableMap(map);
   }
 
+  private static class ServiceDescriptor {
+
+    private Class<? extends IInterface> clazz;
+    private String className;
+    private boolean useDeepBinder;
+
+    ServiceDescriptor(Class<? extends IInterface> clazz) {
+      this.clazz = clazz;
+    }
+
+    ServiceDescriptor(Class<? extends IInterface> clazz, boolean useDeepBinder) {
+      this.clazz = clazz;
+      this.useDeepBinder = useDeepBinder;
+    }
+
+    ServiceDescriptor(String className) {
+      this.className = className;
+    }
+
+    IBinder createBinder() {
+      if (className == null) {
+        className = clazz.getCanonicalName();
+      } else if (clazz == null) {
+        try {
+          clazz = (Class<IInterface>) Class.forName(className);
+        } catch (ClassNotFoundException e) {
+          throw new RuntimeException(e);
+        }
+      }
+      Binder binder = new Binder();
+      binder.attachInterface(
+          useDeepBinder
+              ? ReflectionHelpers.createDeepProxy(clazz)
+              : ReflectionHelpers.createNullProxy(clazz),
+          className);
+      return binder;
+    }
+  }
+
+  protected static void addServiceDescriptor(String name, Class<? extends IInterface> clazz) {
+    serviceDescriptors.put(name, new ServiceDescriptor(clazz));
+  }
+
+  protected static void addServiceDescriptor(String name, String serviceDescriptor) {
+    serviceDescriptors.put(name, new ServiceDescriptor(serviceDescriptor));
+  }
+
+  protected static void addServiceDescriptor(
+      String name, Class<? extends IInterface> clazz, boolean useDeepBinder) {
+    serviceDescriptors.put(name, new ServiceDescriptor(clazz, true));
+  }
   /**
    * Returns the binder associated with the given system service. If the given service is set to
    * unavailable in {@link #setServiceAvailability}, {@code null} will be returned.
@@ -234,31 +208,11 @@ public class ShadowServiceManager {
     if (unavailableServices.contains(name)) {
       return null;
     }
-    return SERVICES.get(name);
-  }
-
-  private static Binder createBinder(String className, String descriptor) {
-    Class<IInterface> clazz;
-    try {
-      clazz = (Class<IInterface>) Class.forName(className);
-    } catch (ClassNotFoundException e) {
-      throw new RuntimeException(e);
+    if (serviceDescriptors.containsKey(name) && !cachedServices.containsKey(name)) {
+      ServiceDescriptor serviceDescriptor = serviceDescriptors.get(name);
+      cachedServices.put(name, serviceDescriptor.createBinder());
     }
-    Binder binder = new Binder();
-    binder.attachInterface(ReflectionHelpers.createNullProxy(clazz), descriptor);
-    return binder;
-  }
-
-  protected static Binder createBinder(Class<? extends IInterface> clazz, String descriptor) {
-    Binder binder = new Binder();
-    binder.attachInterface(ReflectionHelpers.createNullProxy(clazz), descriptor);
-    return binder;
-  }
-
-  private static Binder createDeepBinder(Class<? extends IInterface> clazz, String descriptor) {
-    Binder binder = new Binder();
-    binder.attachInterface(ReflectionHelpers.createDeepProxy(clazz), descriptor);
-    return binder;
+    return cachedServices.get(name);
   }
 
   @Implementation
